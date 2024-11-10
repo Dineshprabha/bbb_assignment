@@ -3,7 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_restful import Resource, Api, reqparse, fields, marshal_with, abort
 import datetime
 import pytz
-import json
+import json, re
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
@@ -75,13 +75,26 @@ data_capture_fields = {
     'created_at': fields.DateTime
 }
 
-# Resources
+def is_valid_password(password):
+    # Minimum 8 characters, at least one letter, one number, and one special character
+    pattern = r'^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$'
+    return re.match(pattern, password)
+
+
 class RegisterUser(Resource):
     @marshal_with(user_fields)
     def post(self):
         args = user_args.parse_args()
+
+        # Check if username already exists
         if UserModel.query.filter_by(username=args['username']).first():
             abort(409, message="Username already exists")
+
+        # Validate password
+        if not is_valid_password(args['password']):
+            abort(400, message="Password must be at least 8 characters long, including at least one letter, one number, and one special character.")
+
+        # Create user if password is valid
         user = UserModel(username=args['username'], password=args['password'])
         db.session.add(user)
         db.session.commit()
@@ -92,7 +105,12 @@ class LoginUser(Resource):
         args = user_args.parse_args()
         user = UserModel.query.filter_by(username=args['username'], password=args['password']).first()
         if user:
-            return {'message': 'Login successful', 'user_id': user.id}, 200
+            user_response = {
+                "id": user.id,
+                "username": user.username,
+                "createdAt": user.created_at.isoformat()  # Convert datetime to ISO 8601 format for JSON
+            }
+            return user_response, 200
         else:
             abort(401, message="Invalid credentials")
 
